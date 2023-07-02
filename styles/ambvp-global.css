@@ -1,0 +1,9 @@
+.ambvp-verse {
+  color: blue;
+  position: relative;
+}
+
+.ambvp-verse:hover{
+  cursor: pointer;
+  text-decoration: underline;
+}
