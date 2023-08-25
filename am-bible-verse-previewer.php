@@ -27,7 +27,7 @@ function ambvp_child_plugin_notice()
 {
 ?>
     <div class="error">
-        <p>Sorry, but the plugin <b>"<u>Bible Verse Viewer"</u></b> requires the <a href='<?php site_url() ?>/wp-admin/plugin-install.php?s=classic%2520editor&tab=search&type=term'>Classic Editor Plugin</a> created by 'WordPress Contributors' to be installed and active.</p>
+        <p>Sorry, but the plugin <b>"<u>Bible Verse Viewer"</u></b> requires the <a href='<?php echo site_url() ?>/wp-admin/plugin-install.php?s=Classic%2520Editor&tab=search&type=term'>Classic Editor Plugin</a> created by 'WordPress Contributors' to be installed and active.</p>
     </div>
 <?php
 }
@@ -48,65 +48,72 @@ function ambvp_require_classic_editor_Plugin()
 add_action('admin_init', 'ambvp_require_classic_editor_Plugin');
 #endregion Require the Classic Editor plugin
 
-#region Add the format button option to the classic editor
-function ambvp_add_classic_editor_styles_btn($buttons)
-{
-    array_unshift($buttons, 'styleselect');
-    return $buttons;
-}
-add_filter('mce_buttons_2', 'ambvp_add_classic_editor_styles_btn');
-#endregion Add the format button option to the classic editor
-
-#region Add the custom styles
-function ambvp_before_init_insert_formats($init_array)
-{
-    // The new styles
-    $new_style_format = [[
-        'title' => 'Verse Reference',
-        'inline' => 'span',
-        'classes' => 'ambvp-verse',
-        'styles' => ['color' => 'blue'],
-        'wrapper' => true,
-    ]];
-
-    // Add the new styles as sub-category
-    if (get_option('tcs_submenu') === "1") {
-        $mainmenu = [['title' => 'Bible Custom Styles', 'items' => $new_style_format]];
-        $new_style_format = $mainmenu;
-    }
-
-    $init_array['style_formats'] = json_encode($new_style_format);
-    $init_array['style_formats_merge'] = true;
-
-    return $init_array;
-}
-add_filter('tiny_mce_before_init', 'ambvp_before_init_insert_formats');
-#endregion Add the custom styles
-
 #region modify the already created posts
 function ambvp_add_style_to_verse($content)
 {
+    $content = str_replace(chr(194) . chr(160), ' ', $content);
+
     global $ambvpData;
 
-    $french_books = implode("|", array_values($ambvpData->frenchDict));
-    $russian_books = implode("|", array_values($ambvpData->russianDict));
-    $persian_books = implode("|", array_values($ambvpData->persianDict));
-    $tamil_books = implode("|", array_values($ambvpData->tamilDict));
-    $all_books = "{$french_books}|{$russian_books}|{$persian_books}|{$tamil_books}";
+    $french_books_reg = implode("|", array_values($ambvpData->french_books)) . "|Psaume";
+    $russian_books_reg = implode("|", array_values($ambvpData->russian_books)) . "|Деяния|Исаией|Исаии";
+    $persian_books_reg = implode("|", array_values($ambvpData->persian_books)) . "|اعمال|اشعیا|مزامیر";
+    $tamil_books_reg = implode("|", array_values($ambvpData->tamil_books));
+    $all_books = "{$french_books_reg}|{$russian_books_reg}|{$persian_books_reg}|{$tamil_books_reg}";
+    $persian_numbers = implode("|", array_keys($ambvpData->persian_numbers_dict));
+    $number = "(\d|$persian_numbers)";
+    $space = "(\s|(&nbsp;)|(\xC2\xA0))";
+    $verseRange /*After the chapter and verse start*/ = "($space?(–|-|(&#8211;))$space?$number{1,2}$space?:?$number{0,2}$space?)";
+    $verse = "$number{1,3}$space?:$space?$number{1,2}$verseRange?";
+    $and = "et|و|и|மற்றும்";
+    $regex = "/($all_books)$space?$verse($space?(,|;|،|$and)$space?$verse)*/i";
+    preg_match_all($regex, $content, $matches, PREG_OFFSET_CAPTURE);
 
-    $persian_numbers = "۰۱۲۳۴۵۶۷۸۹";
-    $number = "[\d$persian_numbers]";
+    $matches = $matches[0];
 
-    $verseRange = "\s?(–|-|(&#8211;))\s?$number$number?\s?";
-    
-    $regex = "/\\(?\s?($all_books)\s?$number$number?\s?:\s?$number$number?($verseRange)?(\s?,\s?$number$number?$verseRange)?\\)?/";
-    $matches = [];
-    preg_match_all($regex, $content, $matches);
+    $new_content = substr(
+        $content,
+        0,
+        $matches[0][1]
+    );
 
-    foreach ($matches[0] as $match) {
-        $content = str_replace($match, "<span class='ambvp-verse'>{$match}</span>", $content);
+    for ($i = 0; $i < sizeof($matches); $i++) {
+        // detect the language
+        $language = "french";
+        switch (1) {
+            case preg_match("/($russian_books_reg)/", $matches[$i][0]):
+                global $language;
+                $language = "russian";
+                break;
+            case preg_match("/($persian_books_reg)/", $matches[$i][0]):
+                global $language;
+                $language = "persian";
+                break;
+            case preg_match("/($tamil_books_reg)/", $matches[$i][0]):
+                global $language;
+                $language = "tamil";
+                break;
+
+            default:
+                break;
+        }
+
+        $new_content .= "<span class='ambvp-verse' data-lang='{$language}'>{$matches[$i][0]}</span>";
+
+        if ($i === array_key_last($matches))
+            $new_content .= substr(
+                $content,
+                $matches[$i][1] + strlen($matches[$i][0])
+            );
+        else
+            $new_content .= substr(
+                $content,
+                $matches[$i][1] + strlen($matches[$i][0]),
+                $matches[$i + 1][1] - $matches[$i][1] - strlen($matches[$i][0])
+            );
     }
-    return $content;
+
+    return $new_content;
 };
 add_filter("the_content", "ambvp_add_style_to_verse");
 #endregion modify the already created posts
@@ -114,12 +121,19 @@ add_filter("the_content", "ambvp_add_style_to_verse");
 #region Add custom styles and scripts
 function ambvp_add_scripts()
 {
-    wp_enqueue_style("ambvpCss", plugin_dir_url(__FILE__) . "styles/ambvp-global.css", null, time());
-    wp_enqueue_script("ambvpJs", plugin_dir_url(__FILE__) . "scripts/ambvp-global.js", null, time(), true);
-    wp_localize_script("ambvpJs", "ambvpObject", [
-        // "bookText" => json_decode(file_get_contents(plugin_dir_url(__FILE__) . "data/bibleText.json"), true),
-        // "bookDictionary" => ambvpBooksDictionary
-    ]);
+    global $ambvpData;
+    if (is_singular()) {
+        wp_enqueue_style("ambvpCss", plugin_dir_url(__FILE__) . "styles/ambvp-global.css", null, time());
+        wp_enqueue_script("ambvpJs", plugin_dir_url(__FILE__) . "scripts/ambvp-global.js", null, time(), true);
+        wp_localize_script("ambvpJs", "ambvpObject", [
+            "frenchBooks" => $ambvpData->french_books,
+            "russianBooks" => $ambvpData->russian_books,
+            "persianBooks" => $ambvpData->persian_books,
+            "tamilBooks" => $ambvpData->tamil_books,
+            "textUrl" => plugin_dir_url(__FILE__) . "data",
+            "persianNumbersDict" => $ambvpData->persian_numbers_dict
+        ]);
+    }
 }
 add_action('wp_enqueue_scripts', 'ambvp_add_scripts');
 #endregion Add custom styles and scripts
